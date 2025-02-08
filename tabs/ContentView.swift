@@ -1,77 +1,31 @@
-//
-//  ContentView.swift
-//  tabs
-//
-//  Created by Сергей Токарев on 05.02.2025.
-//
-
+// ContentView.swift
 import SwiftUI
 
 struct ContentView: View {
     @StateObject private var viewModel = NotesViewModel()
     @State private var activeTabIndex: Int = 0
     @State private var previousTabIndex: Int = 0
+    @FocusState private var isInputBarFocused: Bool
     
     var body: some View {
         VStack(spacing: 0) {
-            categoryTabs
+            TabsView(
+                activeTabIndex: $activeTabIndex,
+                previousTabIndex: $previousTabIndex
+            )
             contentView
-            inputBar
+            InputBarView()
         }
-        .onChange(of: viewModel.selectedCategory) { newCategory in
-            activeTabIndex = newCategory.index
+        .onChange(of: viewModel.selectedCategory) { _ in
+            activeTabIndex = viewModel.selectedCategory.index
+        }
+        .environmentObject(viewModel)
+        .background(Color("PrimaryBackground"))
+        .onTapGesture {
+            isInputBarFocused = false
         }
     }
     
-    // Вкладки категорий
-    private var categoryTabs: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(NoteCategory.allCases) { category in
-                    Button(action: {
-                        previousTabIndex = activeTabIndex
-                        let newIndex = category.index
-                        
-                        if abs(newIndex - activeTabIndex) == 1 {
-                            // Соседние вкладки - анимация перелистывания
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                                activeTabIndex = newIndex
-                                viewModel.selectedCategory = category
-                            }
-                        } else {
-                            // Не соседние - мгновенное переключение
-                            withAnimation(.none) {
-                                activeTabIndex = newIndex
-                            }
-                            viewModel.selectedCategory = category
-                        }
-                    }) {
-                        Text(category.rawValue)
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                            .foregroundColor(viewModel.selectedCategory == category ? .primary : .secondary)
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, 16)
-                            .background(
-                                viewModel.selectedCategory == category
-                                ? Color.gray.opacity(0.2)
-                                : Color.clear
-                            )
-                            .clipShape(RoundedRectangle(cornerRadius: 20))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 20)
-                                    .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-                            )
-                    }
-                }
-            }
-            .padding(.horizontal)
-            .padding(.vertical, 8)
-        }
-        .background(.ultraThinMaterial)
-    }
-    
-    // Контент с поддержкой свайпа
     private var contentView: some View {
         GeometryReader { geometry in
             HStack(spacing: 0) {
@@ -91,6 +45,7 @@ struct ContentView: View {
             .gesture(
                 DragGesture()
                     .onEnded { value in
+                        isInputBarFocused = false
                         previousTabIndex = activeTabIndex
                         let translation = value.translation.width
                         let velocity = value.velocity.width
@@ -112,29 +67,8 @@ struct ContentView: View {
             )
         }
     }
-    
-    // Панель ввода
-    private var inputBar: some View {
-        HStack(spacing: 12) {
-            TextField("Новая заметка...", text: $viewModel.newNoteText)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit(viewModel.addNote)
-            
-            Button(action: viewModel.addNote) {
-                Image(systemName: "plus.circle.fill")
-                    .padding(10)
-                    .background(viewModel.newNoteText.isEmpty ? Color.gray : Color.blue)
-                    .foregroundColor(.white)
-                    .clipShape(Circle())
-            }
-            .disabled(viewModel.newNoteText.isEmpty)
-        }
-        .padding()
-        .background(.ultraThinMaterial)
-    }
 }
 
-// MARK: - Компоненты
 struct NoteListView: View {
     let category: NoteCategory
     @EnvironmentObject var viewModel: NotesViewModel
@@ -144,7 +78,7 @@ struct NoteListView: View {
             ScrollView {
                 LazyVStack(spacing: 8) {
                     ForEach(viewModel.filteredNotes(for: category)) { note in
-                        NoteBubble(note: note)
+                        NoteBubbleView(note: note)
                             .transition(.asymmetric(
                                 insertion: .move(edge: .bottom).combined(with: .opacity),
                                 removal: .move(edge: .leading).combined(with: .opacity))
@@ -152,58 +86,57 @@ struct NoteListView: View {
                             .id(note.id)
                     }
                     
+                    // Вспомогательный спейсер для определения необходимости скролла
+                    GeometryReader { geometry in
+                        Color.clear
+                            .preference(
+                                key: ScrollOffsetPreferenceKey.self,
+                                value: geometry.frame(in: .named("scroll")).maxY
+                            )
+                    }
+                    .frame(height: 1)
+                    
+                    // Нижний отступ для корректного отображения последней заметки
                     Color.clear
-                        .frame(height: 0)
+                        .frame(height: 16)
                         .id("bottomAnchor")
                 }
                 .padding(.horizontal)
                 .padding(.top)
-                .onAppear {
-                    proxy.scrollTo("bottomAnchor", anchor: .bottom)
-                }
             }
-            .onChange(of: viewModel.notes.count) { _ in
-                withAnimation {
-                    proxy.scrollTo("bottomAnchor", anchor: .bottom)
-                }
-            }
-        }
-    }
-}
-
-struct NoteBubble: View {
-    let note: Note
-    @EnvironmentObject var viewModel: NotesViewModel
-    
-    var body: some View {
-        HStack {
-            Text(note.text)
-                .padding()
-                .background(Color.gray.opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .contextMenu {
-                    Button(role: .destructive) {
-                        viewModel.deleteNote(withID: note.id)
-                    } label: {
-                        Label("Удалить", systemImage: "trash")
+            .coordinateSpace(name: "scroll")
+            .onChange(of: viewModel.notes.count) { [oldCount = viewModel.notes.count] newCount in
+                // Проверяем, добавлена ли новая заметка
+                if newCount > oldCount {
+                    // Используем небольшую задержку, чтобы анимация вставки заметки успела начаться
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            proxy.scrollTo("bottomAnchor", anchor: .bottom)
+                        }
                     }
-                    
-                    Button("Переместить") { /* ... */ }
                 }
-            
-            Spacer()
+            }
+            // Отслеживаем необходимость скролла
+            .onPreferenceChange(ScrollOffsetPreferenceKey.self) { maxY in
+                // Если контент не помещается, скроллим
+                if maxY > UIScreen.main.bounds.height * 0.7 {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        proxy.scrollTo("bottomAnchor", anchor: .bottom)
+                    }
+                }
+            }
         }
     }
 }
 
-// MARK: - Расширения
-extension NoteCategory {
-    var index: Int {
-        NoteCategory.allCases.firstIndex(of: self) ?? 0
+struct ScrollOffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 
-// MARK: - Preview
 #Preview {
     ContentView()
 }
