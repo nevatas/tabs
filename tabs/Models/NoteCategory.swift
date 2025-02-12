@@ -9,8 +9,8 @@ enum NoteCategory: String, CaseIterable, Identifiable, Codable {
     var id: Self { self }
     
     var index: Int {
-            NoteCategory.allCases.firstIndex(of: self) ?? 0
-        }
+        NoteCategory.allCases.firstIndex(of: self) ?? 0
+    }
     
     var emoji: String {
         switch self {
@@ -23,8 +23,15 @@ enum NoteCategory: String, CaseIterable, Identifiable, Codable {
 }
 
 struct Note: Identifiable, Codable {
-    let id = UUID()
-    let text: String
-    let category: NoteCategory
-    let timestamp = Date()
+    var id: UUID
+    var text: String
+    var category: NoteCategory
+    var timestamp: Date
+    
+    init(text: String, category: NoteCategory) {
+        self.id = UUID()
+        self.text = text
+        self.category = category
+        self.timestamp = Date()
+    }
 }

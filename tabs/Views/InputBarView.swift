@@ -3,7 +3,7 @@ import SwiftUI
 
 struct InputBarView: View {
     @EnvironmentObject var viewModel: NotesViewModel
-    @FocusState var isTextFieldFocused: Bool
+    @FocusState var isTextFieldFocused: Bool // Убираем private
     @State private var isPlusButtonActive = true
     
     var body: some View {
@@ -33,7 +33,9 @@ struct InputBarView: View {
                     
                     ButtonSendView(
                         isEmpty: viewModel.newNoteText.trimmingCharacters(in: .whitespaces).isEmpty,
-                        action: viewModel.addNote
+                        action: {
+                            viewModel.addNote()
+                        }
                     )
                 }
                 .padding(.horizontal, 8)

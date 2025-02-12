@@ -8,23 +8,29 @@ struct ContentView: View {
     @FocusState private var isInputBarFocused: Bool
     
     var body: some View {
-        VStack(spacing: 0) {
-            TabsView(
-                activeTabIndex: $activeTabIndex,
-                previousTabIndex: $previousTabIndex
+            VStack(spacing: 0) {
+                TabsView(
+                    activeTabIndex: $activeTabIndex,
+                    previousTabIndex: $previousTabIndex
+                )
+                contentView
+                InputBarView(isTextFieldFocused: _isInputBarFocused) // Передаем FocusState
+            }
+            .onChange(of: viewModel.selectedCategory) { _, newValue in
+                activeTabIndex = newValue.index
+            }
+            .environmentObject(viewModel)
+            .background(Color("PrimaryBackground"))
+            .simultaneousGesture(
+                TapGesture()
+                    .onEnded { _ in
+                        if !viewModel.newNoteText.isEmpty {
+                            return // Не скрываем клавиатуру, если поле не пустое
+                        }
+                        isInputBarFocused = false
+                    }
             )
-            contentView
-            InputBarView()
         }
-        .onChange(of: viewModel.selectedCategory) { _ in
-            activeTabIndex = viewModel.selectedCategory.index
-        }
-        .environmentObject(viewModel)
-        .background(Color("PrimaryBackground"))
-        .onTapGesture {
-            isInputBarFocused = false
-        }
-    }
     
     private var contentView: some View {
         GeometryReader { geometry in
@@ -45,7 +51,7 @@ struct ContentView: View {
             .gesture(
                 DragGesture()
                     .onEnded { value in
-                        isInputBarFocused = false
+                        hideKeyboard()
                         previousTabIndex = activeTabIndex
                         let translation = value.translation.width
                         let velocity = value.velocity.width
@@ -67,6 +73,10 @@ struct ContentView: View {
             )
         }
     }
+    
+    private func hideKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
 }
 
 struct NoteListView: View {
@@ -86,7 +96,6 @@ struct NoteListView: View {
                             .id(note.id)
                     }
                     
-                    // Вспомогательный спейсер для определения необходимости скролла
                     GeometryReader { geometry in
                         Color.clear
                             .preference(
@@ -96,7 +105,6 @@ struct NoteListView: View {
                     }
                     .frame(height: 1)
                     
-                    // Нижний отступ для корректного отображения последней заметки
                     Color.clear
                         .frame(height: 16)
                         .id("bottomAnchor")
@@ -105,29 +113,28 @@ struct NoteListView: View {
                 .padding(.top)
             }
             .coordinateSpace(name: "scroll")
-            .onChange(of: viewModel.notes.count) { [oldCount = viewModel.notes.count] newCount in
-                // Проверяем, добавлена ли новая заметка
-                if newCount > oldCount {
-                    // Используем небольшую задержку, чтобы анимация вставки заметки успела начаться
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                            proxy.scrollTo("bottomAnchor", anchor: .bottom)
-                        }
+            .onChange(of: viewModel.notes.count) { _, _ in
+                let proxyRef = proxy
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        proxyRef.scrollTo("bottomAnchor", anchor: .bottom)
                     }
                 }
             }
-            // Отслеживаем необходимость скролла
             .onPreferenceChange(ScrollOffsetPreferenceKey.self) { maxY in
-                // Если контент не помещается, скроллим
+                let proxyRef = proxy
                 if maxY > UIScreen.main.bounds.height * 0.7 {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                        proxy.scrollTo("bottomAnchor", anchor: .bottom)
+                        proxyRef.scrollTo("bottomAnchor", anchor: .bottom)
                     }
                 }
             }
         }
     }
 }
+
+// Остальные структуры остаются без изменений
 
 struct ScrollOffsetPreferenceKey: PreferenceKey {
     static var defaultValue: CGFloat = 0

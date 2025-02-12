@@ -24,8 +24,7 @@ struct TabsView: View {
                 .padding(.horizontal)
                 .padding(.vertical, 8)
             }
-            .onChange(of: viewModel.selectedCategory) { newCategory in
-                // Скроллим к выбранной категории с центрированием
+            .onChange(of: viewModel.selectedCategory) { _, newCategory in
                 withAnimation {
                     scrollProxy.scrollTo(newCategory, anchor: .center)
                 }
